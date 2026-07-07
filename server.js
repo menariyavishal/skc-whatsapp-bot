@@ -3,7 +3,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const pino = require('pino');
-const { neon } = require('@neondatabase/serverless');
+const { Pool } = require('pg');
 
 // ─── Configuration ───────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
@@ -19,7 +19,7 @@ if (!DATABASE_URL) {
   process.exit(1);
 }
 
-const sql = neon(DATABASE_URL);
+const pool = new Pool({ connectionString: DATABASE_URL });
 const sessionDir = process.env.WHATSAPP_SESSION_DIR || path.join(process.cwd(), 'whatsapp-sessions');
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
@@ -29,16 +29,16 @@ let isInitializing = false;
 
 // ─── Database Helpers ───────────────────────────────────────────
 async function getSettings() {
-  const rows = await sql`SELECT * FROM "whatsapp_settings" LIMIT 1`;
-  if (rows.length === 0) {
-    const created = await sql`
+  const res = await pool.query('SELECT * FROM "whatsapp_settings" LIMIT 1');
+  if (res.rows.length === 0) {
+    const created = await pool.query(`
       INSERT INTO "whatsapp_settings" (owner_phone, status, simulate_failures, simulate_session_error)
       VALUES ('9928203203', 'disconnected', false, false)
       RETURNING *
-    `;
-    return created[0];
+    `);
+    return created.rows[0];
   }
-  return rows[0];
+  return res.rows[0];
 }
 
 async function updateSettings(id, data) {
@@ -50,22 +50,17 @@ async function updateSettings(id, data) {
   if (data.qr_code !== undefined) { setClauses.push(`qr_code = $${idx++}`); values.push(data.qr_code); }
 
   if (setClauses.length === 0) return;
+  values.push(id);
 
-  // Use tagged template for simple updates
-  if (data.status !== undefined && data.qr_code !== undefined) {
-    await sql`UPDATE "whatsapp_settings" SET status = ${data.status}, qr_code = ${data.qr_code} WHERE id = ${id}`;
-  } else if (data.status !== undefined) {
-    await sql`UPDATE "whatsapp_settings" SET status = ${data.status} WHERE id = ${id}`;
-  } else if (data.qr_code !== undefined) {
-    await sql`UPDATE "whatsapp_settings" SET qr_code = ${data.qr_code} WHERE id = ${id}`;
-  }
+  const query = `UPDATE "whatsapp_settings" SET ${setClauses.join(', ')} WHERE id = $${idx}`;
+  await pool.query(query, values);
 }
 
 async function logAuditEvent(billId, billNumber, event, details) {
-  await sql`
+  await pool.query(`
     INSERT INTO "whatsapp_audit_logs" (bill_id, bill_number, event, details)
-    VALUES (${billId}, ${billNumber}, ${event}, ${details})
-  `;
+    VALUES ($1, $2, $3, $4)
+  `, [billId, billNumber, event, details]);
 }
 
 // ─── Baileys WhatsApp Daemon ────────────────────────────────────
