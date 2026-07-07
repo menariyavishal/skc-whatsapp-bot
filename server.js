@@ -174,7 +174,7 @@ async function disconnectWhatsapp() {
   }
 }
 
-async function sendWhatsappMessage(phone, text, pdfPath, pdfFilename) {
+async function sendWhatsappMessage(phone, text, pdfPath, pdfFilename, pdfBase64) {
   if (!globalSocket) {
     throw new Error('WhatsApp is not connected');
   }
@@ -190,14 +190,16 @@ async function sendWhatsappMessage(phone, text, pdfPath, pdfFilename) {
   await globalSocket.sendMessage(jid, { text });
 
   // Send PDF if provided
-  if (pdfPath && pdfFilename) {
-    // pdfPath could be a URL or a local path
+  if ((pdfPath || pdfBase64) && pdfFilename) {
     let pdfBuffer;
-    if (pdfPath.startsWith('http')) {
+    
+    if (pdfBase64) {
+      pdfBuffer = Buffer.from(pdfBase64, 'base64');
+    } else if (pdfPath.startsWith('http')) {
       const response = await fetch(pdfPath);
       pdfBuffer = Buffer.from(await response.arrayBuffer());
     } else {
-      // Try to read from local filesystem
+      // Try to read from local filesystem (only works if bot and files are on same machine)
       const fullPath = path.resolve(pdfPath);
       if (fs.existsSync(fullPath)) {
         pdfBuffer = fs.readFileSync(fullPath);
@@ -291,13 +293,13 @@ app.post('/disconnect', async (req, res) => {
 // POST /send — Send a WhatsApp message
 app.post('/send', async (req, res) => {
   try {
-    const { phone, text, pdfUrl, pdfFilename } = req.body;
+    const { phone, text, pdfUrl, pdfFilename, pdfBase64 } = req.body;
 
     if (!phone || !text) {
       return res.status(400).json({ error: 'Missing required fields: phone, text' });
     }
 
-    await sendWhatsappMessage(phone, text, pdfUrl, pdfFilename);
+    await sendWhatsappMessage(phone, text, pdfUrl, pdfFilename, pdfBase64);
 
     res.json({ success: true, message: `Message sent to ${phone}` });
   } catch (error) {
