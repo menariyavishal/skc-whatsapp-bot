@@ -127,24 +127,19 @@ async function initWhatsappSocket() {
 
       if (connection === 'close') {
         const statusCode = lastDisconnect?.error?.output?.statusCode;
-        const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+        console.log(`❌ Disconnected (code: ${statusCode}).`);
 
-        console.log(`❌ Disconnected (code: ${statusCode}). ${shouldReconnect ? 'Reconnecting...' : 'Session ended.'}`);
+        // Always clean up state and stop reconnecting infinitely
+        globalSocket = null;
+        isInitializing = false;
+        
+        // Update database to reflect disconnection
+        await updateSettings(settings.id, { status: 'disconnected', qr_code: null });
 
-        if (shouldReconnect) {
-          // Auto-reconnect after 5 seconds
-          isInitializing = false;
-          setTimeout(() => initWhatsappSocket(), 5000);
-        } else {
-          globalSocket = null;
-          isInitializing = false;
-          await updateSettings(settings.id, { status: 'disconnected', qr_code: null });
-
-          // Clear session files on logout
-          if (fs.existsSync(sessionDir)) {
-            fs.rmSync(sessionDir, { recursive: true, force: true });
-            fs.mkdirSync(sessionDir, { recursive: true });
-          }
+        // Clear session files on any closure to ensure fresh start next time
+        if (fs.existsSync(sessionDir)) {
+          fs.rmSync(sessionDir, { recursive: true, force: true });
+          fs.mkdirSync(sessionDir, { recursive: true });
         }
       }
     });
