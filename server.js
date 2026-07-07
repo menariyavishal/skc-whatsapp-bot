@@ -186,19 +186,16 @@ async function sendWhatsappMessage(phone, text, pdfPath, pdfFilename, pdfBase64)
   }
   jid = jid + '@s.whatsapp.net';
 
-  // Send text message
-  await globalSocket.sendMessage(jid, { text });
-
   // Send PDF if provided
   if ((pdfPath || pdfBase64) && pdfFilename) {
     let pdfBuffer;
     
     if (pdfBase64) {
       pdfBuffer = Buffer.from(pdfBase64, 'base64');
-    } else if (pdfPath.startsWith('http')) {
+    } else if (pdfPath?.startsWith('http')) {
       const response = await fetch(pdfPath);
       pdfBuffer = Buffer.from(await response.arrayBuffer());
-    } else {
+    } else if (pdfPath) {
       // Try to read from local filesystem (only works if bot and files are on same machine)
       const fullPath = path.resolve(pdfPath);
       if (fs.existsSync(fullPath)) {
@@ -211,11 +208,16 @@ async function sendWhatsappMessage(phone, text, pdfPath, pdfFilename, pdfBase64)
         document: pdfBuffer,
         mimetype: 'application/pdf',
         fileName: pdfFilename,
+        caption: text // Add text as caption to the PDF
       });
+      console.log(`✅ Message sent to ${phone} (with PDF)`);
+      return; // Exit early since text was sent as caption
     }
   }
 
-  console.log(`✅ Message sent to ${phone}`);
+  // Fallback: Send text only if no PDF was provided or buffer failed
+  await globalSocket.sendMessage(jid, { text });
+  console.log(`✅ Message sent to ${phone} (text only)`);
 }
 
 // ─── Express App ────────────────────────────────────────────────
